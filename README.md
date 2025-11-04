@@ -14,15 +14,16 @@
    - [Frontend](#frontend)
    - [Backend](#backend)
    - [Specialized AI Service](#specialized-ai-service)
-4. [Environments & Deployment](#environments--deployment)
-5. [AWS Infrastructure (at a glance)](#aws-infrastructure-at-a-glance)
-6. [Configuration & Secrets](#configuration--secrets)
-7. [Observability & SLOs](#observability--slos)
-8. [Security & Compliance](#security--compliance)
-9. [Cost & Scaling](#cost--scaling)
-10. [Operations (Runbooks)](#operations-runbooks)
-11. [Roadmap](#roadmap)
-12. [Related Documentation](#related-documentation)
+4. [Authentication & Identity (Clerk)](#authentication--identity-clerk)
+5. [Environments & Deployment](#environments--deployment)
+6. [AWS Infrastructure (at a glance)](#aws-infrastructure-at-a-glance)
+7. [Configuration & Secrets](#configuration--secrets)
+8. [Observability & SLOs](#observability--slos)
+9. [Security & Compliance](#security--compliance)
+10. [Cost & Scaling](#cost--scaling)
+11. [Operations (Runbooks)](#operations-runbooks)
+12. [Roadmap](#roadmap)
+13. [Related Documentation](#related-documentation)
 
 ---
 
@@ -48,9 +49,10 @@ flowchart LR
     WEB["React (Web)"]
   end
 
-  %% Edge
+  %% Edge & Identity
   subgraph Edge
     CF["CloudFront CDN"]
+    CLERK["Clerk (Auth)"]
   end
 
   %% Backend
@@ -72,11 +74,17 @@ flowchart LR
 
   RN -->|HTTPS| CF
   WEB -->|HTTPS| CF
+  RN -. signup/login .-> CLERK
+  WEB -. signup/login .-> CLERK
+
   CF --> AR --> API
   API -->|Resolvers| ENT --> PG
   API -->|S3 SDK| S3
   API -->|Internal REST| AIAR --> AIFast --> ExtAPIs
   AIFast -->|Pre/Post-process| PyLibs
+
+  %% Token verification path
+  API -. verify JWT .-> CLERK
 ````
 
 ### End-to-End Request Sequence (Happy Path)
@@ -84,17 +92,21 @@ flowchart LR
 ```mermaid
 sequenceDiagram
   participant Client as "Client (Mobile/Web)"
+  participant Clerk as "Clerk (Auth)"
   participant API as "GraphQL API (Go)"
   participant DB as "Postgres (RDS)"
   participant AI as "AI Service (FastAPI)"
   participant Ext as "External AI API"
 
-  Client->>API: GraphQL query/mutation (Relay)
-  API->>DB: Read/Write via go-ent
-  API->>AI: POST /v1/generate
+  Client->>Clerk: Sign-up / Sign-in (hosted UI or SDK)
+  Clerk-->>Client: Session established (Clerk token)
+  Client->>API: GraphQL query/mutation (Authorization: Bearer <Clerk token>)
+  API->>Clerk: Verify token / fetch claims (server verify)
+  API->>DB: Read/Write via go-ent (tenant-aware)
+  API->>AI: POST /v1/generate (+ user/tenant context)
   AI->>Ext: Invoke selected model/API
-  Ext-->>AI: Streamed/chunked tokens
-  AI-->>API: JSON + metadata (latency, tokens)
+  Ext-->>AI: Streamed / chunked tokens
+  AI-->>API: JSON + metadata (latency, token usage)
   API-->>Client: GraphQL response (Relay store update)
 ```
 
@@ -106,8 +118,9 @@ sequenceDiagram
 
 * **Mobile:** React Native (TypeScript) distributed via **TestFlight**.
 * **Web:** React (TypeScript) containerized and deployed on **AWS App Runner** (fronted by CloudFront).
+* **Auth:** **Clerk** for sign-up/sign-in, session management, and JWTs.
 * **API contract:** **GraphQL** with **Relay** conventions (Node IDs, Connections, persisted queries recommended).
-* **Files:** Direct S3 uploads via pre-signed URLs (from backend).
+* **Files:** Direct S3 uploads via pre-signed URLs (issued by backend after auth).
 * **State:** Relay store + minimal local storage.
 
 ### Backend
@@ -115,23 +128,43 @@ sequenceDiagram
 * **Runtime:** Go.
 * **Data access:** **go-ent** (schema, migrations, typed queries).
 * **API:** **GraphQL**; resolvers orchestrate DB and AI calls.
+* **AuthN/Z:** **Clerk** token verification server-side; per-resolver policy checks and rate limits.
 * **Storage:** **PostgreSQL (RDS)**; **S3** for file/object storage.
 * **Deployment:** Docker container on **AWS App Runner** (VPC connector).
 * **Internal traffic:** Private REST to AI service.
-* **AuthZ/N:** OIDC/JWT, per-resolver policy checks, rate limiting.
 
 ### Specialized AI Service
 
 * **Framework:** **FastAPI (Python)**.
-* **Responsibilities:**
-
-  * Normalize requests across SOTA AI providers (adapter layer).
-  * Pre/post-processing (chunking, templating, safety/guardrails, scoring).
-  * Token/cost accounting and latency metrics.
+* **Responsibilities:** Normalize provider calls, pre/post-process, safety/guardrails, token & latency accounting.
 * **Libraries:** Best-of-breed Python AI/ML libraries.
 * **Deployment:** Docker on **AWS App Runner** (internal endpoint).
 * **Endpoints:** Versioned REST (e.g., `/v1/generate`, `/v1/embed`, `/v1/moderate`).
 * **Research mode:** Separate Python-only repos for experiments.
+
+---
+
+## Authentication & Identity (Clerk)
+
+* **User Identity Source of Truth:** Clerk manages sign-up, sign-in, sessions, MFA (if enabled), and user profiles across web and mobile.
+* **Frontend Integration:**
+
+  * Use Clerk’s React/React Native SDKs for hosted components and session handling.
+  * Client attaches the Clerk session token to every GraphQL request (`Authorization: Bearer …`).
+* **Backend Verification:**
+
+  * API verifies incoming Clerk tokens using Clerk’s server SDK/JWKS before executing resolvers.
+  * Resolver context includes user id, org/tenant, roles/permissions, and rate-limit keys derived from claims.
+* **Service Calls:**
+
+  * API passes minimal user context to the AI service (no raw PII).
+  * The AI service trusts the API (private network) and enforces its own auth check (internal allowlist or short-lived service token).
+* **Webhooks (optional):**
+
+  * Clerk → Backend webhook can provision app-specific records (e.g., create `User`/`Organization` rows on first sign-in).
+* **Logout/Revocation:**
+
+  * Client clears session; server honors revocation by rejecting expired/invalid tokens on each request.
 
 ---
 
@@ -157,16 +190,17 @@ sequenceDiagram
 ## Configuration & Secrets
 
 * **Config order:** Env vars → local `.env` (dev only) → Secrets Manager (cloud).
-* **Common keys:** `GRAPHQL_URL`, `AI_SERVICE_URL`, `RDS_SECRET_ARN`, `S3_BUCKET_UPLOADS`, `JWT_ISSUER/JWKS_URL`, provider API keys.
+* **Auth-related keys:** `CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY`, `CLERK_JWT_ISSUER`, `CLERK_JWKS_URL`.
+* **Common service keys:** `GRAPHQL_URL`, `AI_SERVICE_URL`, `RDS_SECRET_ARN`, `S3_BUCKET_UPLOADS`, `S3_PUBLIC_BASEURL`.
 * **Security:** No secrets in code or Docker build args; rotate on schedule; audit access.
 
 ---
 
 ## Observability & SLOs
 
-* **Traces:** OTel propagation from client → API → AI; include token and latency metrics.
+* **Traces:** OTel propagation from client → API → AI; include token/cost and latency metrics.
 * **Metrics:** RED/USE per service; cost counters (tokens/$) on AI paths.
-* **Logs:** Structured JSON with correlation IDs; PII/PHI never logged.
+* **Logs:** Structured JSON with correlation IDs; Clerk user/org ids recorded as pseudonymous identifiers (no raw PII).
 * **Draft SLOs:**
 
   * API p95 ≤ **800 ms** (no AI) / ≤ **2.5 s** (with AI).
@@ -177,10 +211,10 @@ sequenceDiagram
 
 ## Security & Compliance
 
-* **AuthN/Z:** OIDC JWT; per-tenant / per-org scoping; rate limits & abuse detection.
+* **AuthN/Z:** Clerk-verified JWTs; per-tenant/org scoping; policy checks in resolvers; request-level rate limits.
 * **Data protection:** TLS everywhere; KMS on S3/RDS; pre-signed S3 uploads; clear retention policy.
 * **IAM:** Scoped roles per service; no wildcards; separate CI/runtime/read-only roles.
-* **Audit:** Record auth events, admin actions, data export.
+* **Audit:** Record auth events, admin actions, and data export.
 * **Compliance posture:** SOC2-friendly controls; DSAR/SAR export pathway.
 
 ---
@@ -199,6 +233,7 @@ sequenceDiagram
 * **DB pool exhaustion:** Tune pool, fix N+1, consider read replicas.
 * **S3 upload issues:** Renew pre-signed URL; verify IAM & clock skew; check bucket policy.
 * **App Runner rollback:** Revert to previous image; validate env/secret bindings; compare config drift.
+* **Auth incidents:** Invalidate sessions at Clerk; rotate backend secrets; verify JWKS cache and token TTLs.
 * **Secrets rotation:** Update in Secrets Manager; restart services; verify health probes.
 
 ---
@@ -217,10 +252,11 @@ sequenceDiagram
 
 This README intentionally avoids code. See:
 
-* `docs/frontend/README.md` — RN/React conventions, Relay patterns, accessibility, performance.
-* `docs/backend/README.md` — GraphQL schema guidelines, ent patterns, pagination, auth.
-* `docs/ai-service/README.md` — API contracts, provider adapters, evaluation, guardrails.
-* `docs/infra/README.md` — AWS topology, App Runner/VPC connectors, IaC structure.
-* `docs/observability/README.md` — OTel setup, dashboards, SLOs & alerts.
-* `docs/security/README.md` — Threat model, IAM policy standards, data handling.
+* `FRONTEND.md` — RN/React conventions, Relay patterns, accessibility, performance.
+* `BACKEND.md` — GraphQL schema guidelines, ent patterns, pagination, authorization.
+* `AI_SERVICE.md` — API contracts, provider adapters, evaluation, guardrails.
+* `AWS_INFRA.md` — AWS topology, App Runner/VPC connectors, IaC structure.
+* `OBSERVABILITY.md` — OTel setup, dashboards, SLOs & alerts.
+* `SECURITY.md` — Threat model, IAM policy standards, data handling.
+* `AUTH.md` — **Clerk setup**, token verification, webhook provisioning, session lifecycles.
 
