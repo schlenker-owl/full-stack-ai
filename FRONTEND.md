@@ -1,6 +1,6 @@
 # Frontend (Mobile) — React Native + Relay + Clerk
 
-> **Scope:** Patterns and conventions for our React Native apps (Cura) that talk to the Go/GraphQL backend via **Relay**, authenticate with **Clerk**, and follow accessibility & performance best practices.  
+> **Scope:** Patterns and conventions for our React Native apps that talk to the Go/GraphQL backend via **Relay**, authenticate with **Clerk**, and follow accessibility & performance best practices.  
 > **Audience:** Mobile engineers & code agents.  
 > **This doc avoids app-specific secrets and keeps examples sanitized.**
 
@@ -27,7 +27,7 @@ API_BASE=[http://localhost:8080](http://localhost:8080)     # GRAPHQL_URL is der
 CLERK_PUBLISHABLE_KEY=pk_test_xxx  # or EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY
 CLERK_FRONTEND_URL=https://<your-clerk-instance>
 CLERK_SIGN_IN_PATH=/sign-in        # or your custom path
-OAUTH_REDIRECT_URI=cura://oauth-native-callback
+OAUTH_REDIRECT_URI=app://oauth-native-callback
 
 ````
 
@@ -50,7 +50,7 @@ OAUTH_REDIRECT_URI=cura://oauth-native-callback
 // auth/openClerk.ts (sanitized)
 export async function openClerkHostedSignIn(mode: 'signin'|'signup'='signin') {
   const base = process.env.CLERK_FRONTEND_URL!;
-  const redirect = process.env.OAUTH_REDIRECT_URI!;     // e.g., cura://oauth-native-callback
+  const redirect = process.env.OAUTH_REDIRECT_URI!;     // e.g., app://oauth-native-callback
   const path = mode === 'signup' ? '/sign-up' : (process.env.CLERK_SIGN_IN_PATH ?? '/sign-in');
   const url = `${base.replace(/\/+$/, '')}${path}?redirect_url=${encodeURIComponent(redirect)}`;
 
@@ -134,7 +134,7 @@ export const fetchGraphQL = async (operation, variables, cacheConfig, token: str
 ```tsx
 // Screen query
 const data = useLazyLoadQuery<MeQuery>(
-  graphql`query MeQuery { curaMe { id onboardedAt } }`,
+  graphql`query MeQuery { appMe { id onboardedAt } }`,
   {},
   { fetchPolicy: 'store-and-network' }
 );
@@ -142,12 +142,12 @@ const data = useLazyLoadQuery<MeQuery>(
 // Mutation with optimistic updater
 const [commit] = useMutation(graphql`
   mutation SetIntentionMutation($text: String!) {
-    setCuraIntention(text: $text) { intention { text } }
+    setAppIntention(text: $text) { intention { text } }
   }
 `);
 commit({
   variables: { text },
-  optimisticResponse: { setCuraIntention: { intention: { text } } },
+  optimisticResponse: { setAppIntention: { intention: { text } } },
 });
 ```
 
@@ -175,7 +175,7 @@ commit({
 
 ## 7) Testing (what “working” looks like)
 
-* **Auth exchange path:** after Google sign-in, backend exchange returns an app token; `curaMe` loads and the shell routes to Onboarding/App Tabs.
+* **Auth exchange path:** after Google sign-in, backend exchange returns an app token; `appMe` loads and the shell routes to Onboarding/App Tabs.
 * **Relay artifacts:** repository builds artifacts cleanly from the vendored SDL.
 * **Navigation gate:** not-authed → Auth stack; authed with `onboardedAt` → App Tabs; missing `onboardedAt` → Onboarding.
 
