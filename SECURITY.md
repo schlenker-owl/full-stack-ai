@@ -1,4 +1,4 @@
-# SECURITY — Universal AI Foundry
+# Security — Universal AI Foundry
 
 > **Scope:** Security policy, controls, and runbooks for our stack: **Clerk (auth)** → **Go GraphQL API (Relay, ent, Postgres, S3)** → **AI service (FastAPI)** on **AWS (CloudFront, App Runner, RDS, S3, ECR, VPC, NAT, ALB/ECS optional)**.  
 > **Audience:** Engineers, SRE/on-call, and reviewers.  

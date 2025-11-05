@@ -1,4 +1,4 @@
-# AUTH — Identity & Access (Clerk + Backend + Services)
+# Authentication — Identity & Access (Clerk + Backend + Services)
 
 > **Scope:** End-to-end authentication and authorization across mobile/web (Clerk), the Go GraphQL API, and internal services.  
 > **Design goals:** Simple sign-in UX, strict server verification, clear tenant/role context for resolvers, and private service-to-service auth (no end-user tokens beyond the API boundary).
