@@ -1,4 +1,4 @@
-# Observability — Universal AI Foundry
+# Observability — AI App Foundry
 
 > **Scope:** A complete telemetry spec and runbooks for our stack: **Client (RN/React) → API (Go/GraphQL/ent) → AI service (FastAPI) → AWS (CloudFront, App Runner, RDS, S3, NAT)**.  
 > **Signals:** **Metrics, Logs, Traces, Events (Audit), Synthetics**.  

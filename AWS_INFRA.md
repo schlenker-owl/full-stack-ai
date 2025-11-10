@@ -1,4 +1,4 @@
-# AWS Infrastructure — End-to-End Architecture for Universal AI Foundry
+# AWS Infrastructure — End-to-End Architecture for AI App Foundry
 
 > **Goal:** Document how AWS is used to serve our applications end-to-end — from **client → backend → AI service** — with clear guidance on **VPCs, IAM, NAT, ALB, App Runner, RDS, ECS/EC2, and S3**.  
 > **Bias:** Managed, low-ops, cost-aware. Public-facing entrypoints are minimized; internal services run private by default.

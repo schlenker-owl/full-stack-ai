@@ -1,4 +1,4 @@
-# Universal AI Foundry — Full-Stack AI Tech Stack
+# AI App Foundry — Full-Stack AI Tech Stack
 
 > **Purpose:** Internal documentation of our end-to-end stack for AI-centric products.  
 > **Scope:** Client apps (React Native + React) → Backend API (Go + GraphQL/Relay + Ent + Postgres + S3) → Specialized AI Service (FastAPI + Python libs) → AWS (App Runner, RDS, S3).  
